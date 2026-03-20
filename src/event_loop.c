@@ -50,7 +50,7 @@ static void window_did_receive_focus(struct window_manager *wm, struct mouse_sta
     wm->focused_window_psn = window->application->psn;
     ms->ffm_window_id = 0;
 
-    if (window_check_flag(window, WINDOW_TAB) || window_check_rule_flag(window, WINDOW_RULE_TAB)) {
+    if (window->tab_parent_wid) {
         wm->last_focused_tab_wid = window->id;
     }
 
@@ -401,15 +401,11 @@ static EVENT_HANDLER(APPLICATION_FRONT_SWITCHED)
     // When switching back to an app, macOS AX API may report the tab parent
     // (first tab) as the focused window. If we previously had a different tab
     // focused in this same application, restore that tab's focus instead.
-    if (g_window_manager.last_focused_tab_wid && window_manager_find_managed_window(&g_window_manager, window)) {
+    if (g_window_manager.last_focused_tab_wid && g_window_manager.last_focused_tab_wid != window->id) {
         struct window *tab_child = window_manager_find_window(&g_window_manager, g_window_manager.last_focused_tab_wid);
-        if (tab_child && tab_child->application == window->application
-            && (window_check_flag(tab_child, WINDOW_TAB) || window_check_rule_flag(tab_child, WINDOW_RULE_TAB))) {
-            struct window *parent = window_manager_find_tab_parent(&g_window_manager, tab_child);
-            if (parent && parent->id == window->id) {
-                window_manager_focus_window_with_raise(&tab_child->application->psn, tab_child->id, tab_child->ref);
-                window = tab_child;
-            }
+        if (tab_child && tab_child->tab_parent_wid == window->id) {
+            window_manager_focus_window_with_raise(&tab_child->application->psn, tab_child->id, tab_child->ref);
+            window = tab_child;
         }
     }
 
@@ -583,6 +579,7 @@ static EVENT_HANDLER(WINDOW_CREATED)
         if (tab_parent) {
             debug("%s: tab detected for %s %d (parent %d)\n", __FUNCTION__, window->application->name, window->id, tab_parent->id);
             window_set_flag(window, WINDOW_TAB);
+            window->tab_parent_wid = tab_parent->id;
             if (!window_check_rule_flag(tab_parent, WINDOW_RULE_TAB)) {
                 debug("%s: marking parent %d with RULE_TAB for SLS protection\n", __FUNCTION__, tab_parent->id);
                 window_set_rule_flag(tab_parent, WINDOW_RULE_TAB);
@@ -694,16 +691,11 @@ static EVENT_HANDLER(WINDOW_FOCUSED)
 
     // When a tab parent receives a focus event but we had a tab child focused,
     // redirect focus to the tab child to prevent macOS from switching tabs.
-    if (g_window_manager.last_focused_tab_wid && g_window_manager.last_focused_tab_wid != window->id
-        && window_manager_find_managed_window(&g_window_manager, window)) {
+    if (g_window_manager.last_focused_tab_wid && g_window_manager.last_focused_tab_wid != window->id) {
         struct window *tab_child = window_manager_find_window(&g_window_manager, g_window_manager.last_focused_tab_wid);
-        if (tab_child && tab_child->application == window->application
-            && (window_check_flag(tab_child, WINDOW_TAB) || window_check_rule_flag(tab_child, WINDOW_RULE_TAB))) {
-            struct window *parent = window_manager_find_tab_parent(&g_window_manager, tab_child);
-            if (parent && parent->id == window->id) {
-                window_manager_focus_window_with_raise(&tab_child->application->psn, tab_child->id, tab_child->ref);
-                window = tab_child;
-            }
+        if (tab_child && tab_child->tab_parent_wid == window->id) {
+            window_manager_focus_window_with_raise(&tab_child->application->psn, tab_child->id, tab_child->ref);
+            window = tab_child;
         }
     }
 
@@ -765,12 +757,14 @@ static EVENT_HANDLER(WINDOW_MOVED)
             if (view) {
                 debug("%s: managed window %d now matches tab parent %d, converting to tab\n", __FUNCTION__, window->id, tab_parent->id);
                 window_set_flag(window, WINDOW_TAB);
+                window->tab_parent_wid = tab_parent->id;
                 space_manager_untile_window(view, window);
                 window_manager_remove_managed_window(&g_window_manager, window->id);
                 window_manager_purify_window(&g_window_manager, window);
             } else {
                 debug("%s: unmanaged window %d matches tab parent %d, marking as tab\n", __FUNCTION__, window->id, tab_parent->id);
                 window_set_flag(window, WINDOW_TAB);
+                window->tab_parent_wid = tab_parent->id;
             }
             if (!window_check_rule_flag(tab_parent, WINDOW_RULE_TAB)) {
                 window_set_rule_flag(tab_parent, WINDOW_RULE_TAB);
@@ -884,12 +878,14 @@ static EVENT_HANDLER(WINDOW_RESIZED)
             if (view) {
                 debug("%s: managed window %d now matches tab parent %d, converting to tab\n", __FUNCTION__, window->id, tab_parent->id);
                 window_set_flag(window, WINDOW_TAB);
+                window->tab_parent_wid = tab_parent->id;
                 space_manager_untile_window(view, window);
                 window_manager_remove_managed_window(&g_window_manager, window->id);
                 window_manager_purify_window(&g_window_manager, window);
             } else {
                 debug("%s: unmanaged window %d matches tab parent %d, marking as tab\n", __FUNCTION__, window->id, tab_parent->id);
                 window_set_flag(window, WINDOW_TAB);
+                window->tab_parent_wid = tab_parent->id;
             }
             if (!window_check_rule_flag(tab_parent, WINDOW_RULE_TAB)) {
                 window_set_rule_flag(tab_parent, WINDOW_RULE_TAB);

@@ -104,6 +104,7 @@ struct window
     float opacity;
     int layer;
     char *scratchpad;
+    uint32_t tab_parent_wid;
 };
 
 enum window_flag

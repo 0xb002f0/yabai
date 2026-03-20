@@ -302,8 +302,8 @@ static struct view *window_manager_find_managed_window_for_tab(struct window_man
         return view;
     }
 
-    if (window_check_flag(window, WINDOW_TAB) || window_check_rule_flag(window, WINDOW_RULE_TAB)) {
-        struct window *parent = window_manager_find_tab_parent(wm, window);
+    if (window->tab_parent_wid) {
+        struct window *parent = window_manager_find_window(wm, window->tab_parent_wid);
         if (parent) {
             view = window_manager_find_managed_window(wm, parent);
             if (view) {
