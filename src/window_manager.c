@@ -294,6 +294,29 @@ void window_manager_remove_managed_window(struct window_manager *wm, uint32_t wi
     table_remove(&wm->managed_window, &wid);
 }
 
+static struct view *window_manager_find_managed_window_for_tab(struct window_manager *wm, struct window *window, struct window **out_resolved)
+{
+    struct view *view = window_manager_find_managed_window(wm, window);
+    if (view) {
+        if (out_resolved) *out_resolved = window;
+        return view;
+    }
+
+    if (window_check_flag(window, WINDOW_TAB)) {
+        struct window *parent = window_manager_find_tab_parent(wm, window);
+        if (parent) {
+            view = window_manager_find_managed_window(wm, parent);
+            if (view) {
+                if (out_resolved) *out_resolved = parent;
+                return view;
+            }
+        }
+    }
+
+    if (out_resolved) *out_resolved = NULL;
+    return NULL;
+}
+
 void window_manager_add_managed_window(struct window_manager *wm, struct window *window, struct view *view)
 {
     if (view->layout == VIEW_FLOAT) return;
@@ -305,10 +328,11 @@ enum window_op_error window_manager_adjust_window_ratio(struct window_manager *w
 {
     TIME_FUNCTION;
 
-    struct view *view = window_manager_find_managed_window(wm, window);
+    struct window *resolved = NULL;
+    struct view *view = window_manager_find_managed_window_for_tab(wm, window, &resolved);
     if (!view) return WINDOW_OP_ERROR_INVALID_SRC_VIEW;
 
-    struct window_node *node = view_find_window_node(view, window->id);
+    struct window_node *node = view_find_window_node(view, resolved->id);
     if (!node || !node->parent) return WINDOW_OP_ERROR_INVALID_SRC_NODE;
 
     switch (type) {
@@ -976,10 +1000,11 @@ struct window *window_manager_find_window_below_cursor(struct window_manager *wm
 
 struct window *window_manager_find_closest_managed_window_in_direction(struct window_manager *wm, struct window *window, int direction)
 {
-    struct view *view = window_manager_find_managed_window(wm, window);
+    struct window *resolved = NULL;
+    struct view *view = window_manager_find_managed_window_for_tab(wm, window, &resolved);
     if (!view) return NULL;
 
-    struct window_node *node = view_find_window_node(view, window->id);
+    struct window_node *node = view_find_window_node(view, resolved->id);
     if (!node) return NULL;
 
     struct window_node *closest = view_find_window_node_in_direction(view, node, direction);
@@ -993,7 +1018,9 @@ struct window *window_manager_find_prev_managed_window(struct space_manager *sm,
     struct view *view = space_manager_find_view(sm, space_manager_active_space());
     if (!view) return NULL;
 
-    struct window_node *node = view_find_window_node(view, window->id);
+    struct window *resolved = NULL;
+    window_manager_find_managed_window_for_tab(wm, window, &resolved);
+    struct window_node *node = view_find_window_node(view, resolved ? resolved->id : window->id);
     if (!node) return NULL;
 
     struct window_node *prev = window_node_find_prev_leaf(node);
@@ -1007,7 +1034,9 @@ struct window *window_manager_find_next_managed_window(struct space_manager *sm,
     struct view *view = space_manager_find_view(sm, space_manager_active_space());
     if (!view) return NULL;
 
-    struct window_node *node = view_find_window_node(view, window->id);
+    struct window *resolved = NULL;
+    window_manager_find_managed_window_for_tab(wm, window, &resolved);
+    struct window_node *node = view_find_window_node(view, resolved ? resolved->id : window->id);
     if (!node) return NULL;
 
     struct window_node *next = window_node_find_next_leaf(node);
@@ -2370,10 +2399,11 @@ void window_manager_toggle_window_zoom_parent(struct window_manager *wm, struct 
 {
     TIME_FUNCTION;
 
-    struct view *view = window_manager_find_managed_window(wm, window);
+    struct window *resolved = NULL;
+    struct view *view = window_manager_find_managed_window_for_tab(wm, window, &resolved);
     if (!view || view->layout != VIEW_BSP) return;
 
-    struct window_node *node = view_find_window_node(view, window->id);
+    struct window_node *node = view_find_window_node(view, resolved->id);
     assert(node);
 
     if (!node->parent) return;
@@ -2399,10 +2429,11 @@ void window_manager_toggle_window_zoom_fullscreen(struct window_manager *wm, str
 {
     TIME_FUNCTION;
 
-    struct view *view = window_manager_find_managed_window(wm, window);
+    struct window *resolved = NULL;
+    struct view *view = window_manager_find_managed_window_for_tab(wm, window, &resolved);
     if (!view || view->layout != VIEW_BSP) return;
 
-    struct window_node *node = view_find_window_node(view, window->id);
+    struct window_node *node = view_find_window_node(view, resolved->id);
     assert(node);
 
     if (node == view->root) return;

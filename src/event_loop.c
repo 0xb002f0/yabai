@@ -394,6 +394,19 @@ static EVENT_HANDLER(APPLICATION_FRONT_SWITCHED)
         return;
     }
 
+    // When switching back to an app, macOS AX API may report the tab parent
+    // (first tab) as the focused window. If we previously had a different tab
+    // focused in this same application, preserve that tab's focus instead.
+    if (window_manager_find_managed_window(&g_window_manager, window)) {
+        struct window *prev = window_manager_find_window(&g_window_manager, g_window_manager.focused_window_id);
+        if (prev && prev->application == window->application && window_check_flag(prev, WINDOW_TAB)) {
+            struct window *parent = window_manager_find_tab_parent(&g_window_manager, prev);
+            if (parent && parent->id == window->id) {
+                window = prev;
+            }
+        }
+    }
+
     window_did_receive_focus(&g_window_manager, &g_mouse_state, window);
     event_signal_push(SIGNAL_WINDOW_FOCUSED, window);
 }
