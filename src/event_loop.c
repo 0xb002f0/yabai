@@ -50,6 +50,10 @@ static void window_did_receive_focus(struct window_manager *wm, struct mouse_sta
     wm->focused_window_psn = window->application->psn;
     ms->ffm_window_id = 0;
 
+    if (window_check_flag(window, WINDOW_TAB) || window_check_rule_flag(window, WINDOW_RULE_TAB)) {
+        wm->last_focused_tab_wid = window->id;
+    }
+
     struct view *view = window_manager_find_managed_window(&g_window_manager, window);
     if (!view) return;
 
@@ -396,13 +400,15 @@ static EVENT_HANDLER(APPLICATION_FRONT_SWITCHED)
 
     // When switching back to an app, macOS AX API may report the tab parent
     // (first tab) as the focused window. If we previously had a different tab
-    // focused in this same application, preserve that tab's focus instead.
-    if (window_manager_find_managed_window(&g_window_manager, window)) {
-        struct window *prev = window_manager_find_window(&g_window_manager, g_window_manager.focused_window_id);
-        if (prev && prev->application == window->application && window_check_flag(prev, WINDOW_TAB)) {
-            struct window *parent = window_manager_find_tab_parent(&g_window_manager, prev);
+    // focused in this same application, restore that tab's focus instead.
+    if (g_window_manager.last_focused_tab_wid && window_manager_find_managed_window(&g_window_manager, window)) {
+        struct window *tab_child = window_manager_find_window(&g_window_manager, g_window_manager.last_focused_tab_wid);
+        if (tab_child && tab_child->application == window->application
+            && (window_check_flag(tab_child, WINDOW_TAB) || window_check_rule_flag(tab_child, WINDOW_RULE_TAB))) {
+            struct window *parent = window_manager_find_tab_parent(&g_window_manager, tab_child);
             if (parent && parent->id == window->id) {
-                window = prev;
+                window_manager_focus_window_with_raise(&tab_child->application->psn, tab_child->id, tab_child->ref);
+                window = tab_child;
             }
         }
     }
@@ -685,6 +691,22 @@ static EVENT_HANDLER(WINDOW_FOCUSED)
     }
 
     debug("%s: %s %d\n", __FUNCTION__, window->application->name, window->id);
+
+    // When a tab parent receives a focus event but we had a tab child focused,
+    // redirect focus to the tab child to prevent macOS from switching tabs.
+    if (g_window_manager.last_focused_tab_wid && g_window_manager.last_focused_tab_wid != window->id
+        && window_manager_find_managed_window(&g_window_manager, window)) {
+        struct window *tab_child = window_manager_find_window(&g_window_manager, g_window_manager.last_focused_tab_wid);
+        if (tab_child && tab_child->application == window->application
+            && (window_check_flag(tab_child, WINDOW_TAB) || window_check_rule_flag(tab_child, WINDOW_RULE_TAB))) {
+            struct window *parent = window_manager_find_tab_parent(&g_window_manager, tab_child);
+            if (parent && parent->id == window->id) {
+                window_manager_focus_window_with_raise(&tab_child->application->psn, tab_child->id, tab_child->ref);
+                window = tab_child;
+            }
+        }
+    }
+
     window_did_receive_focus(&g_window_manager, &g_mouse_state, window);
     event_signal_push(SIGNAL_WINDOW_FOCUSED, window);
 }
@@ -719,12 +741,18 @@ static EVENT_HANDLER(WINDOW_MOVED)
     if (window_check_flag(window, WINDOW_TAB)) {
         struct window *tab_parent = window_manager_find_tab_parent(&g_window_manager, window);
         if (!tab_parent) {
-            debug("%s: tab %d detached, tiling\n", __FUNCTION__, window->id);
-            window_clear_flag(window, WINDOW_TAB);
-            if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window)) {
-                uint64_t sid = window_space(window->id);
-                struct view *view = space_manager_tile_window_on_space(&g_space_manager, window, sid);
-                window_manager_add_managed_window(&g_window_manager, window, view);
+            // Don't detach tabs with a tab rule -- frame mismatch during
+            // resize animations is temporary and should not trigger detachment.
+            if (window_check_rule_flag(window, WINDOW_RULE_TAB)) {
+                debug("%s: tab %d frame mismatch but has RULE_TAB, keeping\n", __FUNCTION__, window->id);
+            } else {
+                debug("%s: tab %d detached, tiling\n", __FUNCTION__, window->id);
+                window_clear_flag(window, WINDOW_TAB);
+                if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window)) {
+                    uint64_t sid = window_space(window->id);
+                    struct view *view = space_manager_tile_window_on_space(&g_space_manager, window, sid);
+                    window_manager_add_managed_window(&g_window_manager, window, view);
+                }
             }
         }
         return;
@@ -834,12 +862,16 @@ static EVENT_HANDLER(WINDOW_RESIZED)
     if (window_check_flag(window, WINDOW_TAB)) {
         struct window *tab_parent = window_manager_find_tab_parent(&g_window_manager, window);
         if (!tab_parent) {
-            debug("%s: tab %d detached, tiling\n", __FUNCTION__, window->id);
-            window_clear_flag(window, WINDOW_TAB);
-            if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window)) {
-                uint64_t sid = window_space(window->id);
-                struct view *view = space_manager_tile_window_on_space(&g_space_manager, window, sid);
-                window_manager_add_managed_window(&g_window_manager, window, view);
+            if (window_check_rule_flag(window, WINDOW_RULE_TAB)) {
+                debug("%s: tab %d frame mismatch but has RULE_TAB, keeping\n", __FUNCTION__, window->id);
+            } else {
+                debug("%s: tab %d detached, tiling\n", __FUNCTION__, window->id);
+                window_clear_flag(window, WINDOW_TAB);
+                if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window)) {
+                    uint64_t sid = window_space(window->id);
+                    struct view *view = space_manager_tile_window_on_space(&g_space_manager, window, sid);
+                    window_manager_add_managed_window(&g_window_manager, window, view);
+                }
             }
         }
         return;

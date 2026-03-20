@@ -87,6 +87,7 @@ struct window_manager
     uint32_t focused_window_id;
     ProcessSerialNumber focused_window_psn;
     uint32_t last_window_id;
+    uint32_t last_focused_tab_wid;
     bool enable_mff;
     enum ffm_mode ffm_mode;
     enum purify_mode purify_mode;
