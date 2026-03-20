@@ -54,6 +54,10 @@ static void window_did_receive_focus(struct window_manager *wm, struct mouse_sta
         wm->last_focused_tab_wid = window->id;
     }
 
+    if (wm->pending_tab_redirect_wid == window->id) {
+        wm->pending_tab_redirect_wid = 0;
+    }
+
     struct view *view = window_manager_find_managed_window(&g_window_manager, window);
     if (!view) return;
 
@@ -404,6 +408,7 @@ static EVENT_HANDLER(APPLICATION_FRONT_SWITCHED)
     if (g_window_manager.last_focused_tab_wid && g_window_manager.last_focused_tab_wid != window->id) {
         struct window *tab_child = window_manager_find_window(&g_window_manager, g_window_manager.last_focused_tab_wid);
         if (tab_child && tab_child->tab_parent_wid == window->id) {
+            g_window_manager.pending_tab_redirect_wid = tab_child->id;
             window_manager_focus_window_with_raise(&tab_child->application->psn, tab_child->id, tab_child->ref);
             window = tab_child;
         }
@@ -689,14 +694,15 @@ static EVENT_HANDLER(WINDOW_FOCUSED)
 
     debug("%s: %s %d\n", __FUNCTION__, window->application->name, window->id);
 
-    // When a tab parent receives a focus event but we had a tab child focused,
-    // redirect focus to the tab child to prevent macOS from switching tabs.
-    if (g_window_manager.last_focused_tab_wid && g_window_manager.last_focused_tab_wid != window->id) {
-        struct window *tab_child = window_manager_find_window(&g_window_manager, g_window_manager.last_focused_tab_wid);
-        if (tab_child && tab_child->tab_parent_wid == window->id) {
-            window_manager_focus_window_with_raise(&tab_child->application->psn, tab_child->id, tab_child->ref);
-            window = tab_child;
+    // After an app-switch tab redirect, macOS may send a spurious WINDOW_FOCUSED
+    // event for the tab parent. Skip it to avoid undoing the redirect.
+    if (g_window_manager.pending_tab_redirect_wid) {
+        struct window *redirect_target = window_manager_find_window(&g_window_manager, g_window_manager.pending_tab_redirect_wid);
+        if (redirect_target && redirect_target->tab_parent_wid == window->id) {
+            debug("%s: ignoring spurious parent focus %d after tab redirect to %d\n", __FUNCTION__, window->id, g_window_manager.pending_tab_redirect_wid);
+            return;
         }
+        g_window_manager.pending_tab_redirect_wid = 0;
     }
 
     window_did_receive_focus(&g_window_manager, &g_mouse_state, window);

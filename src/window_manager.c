@@ -2442,6 +2442,10 @@ void window_manager_toggle_window_zoom_fullscreen(struct window_manager *wm, str
         node->zoom = NULL;
         if (space_is_visible(view->sid)) {
             window_node_flush(node);
+            if (window != resolved) {
+                struct area area = node->area;
+                window_manager_set_window_frame(window, area.x, area.y, area.w, area.h);
+            }
         } else {
             view_set_flag(view, VIEW_IS_DIRTY);
         }
@@ -2449,6 +2453,10 @@ void window_manager_toggle_window_zoom_fullscreen(struct window_manager *wm, str
         node->zoom = view->root;
         if (space_is_visible(view->sid)) {
             window_node_flush(node);
+            if (window != resolved) {
+                struct area area = view->root->area;
+                window_manager_set_window_frame(window, area.x, area.y, area.w, area.h);
+            }
         } else {
             view_set_flag(view, VIEW_IS_DIRTY);
         }
