@@ -584,13 +584,6 @@ static EVENT_HANDLER(WINDOW_CREATED)
 
     if (window_check_rule_flag(window, WINDOW_RULE_TAB)) {
         struct window *tab_parent = window_manager_find_tab_parent(&g_window_manager, window);
-        if (!tab_parent && window_is_standard(window)) {
-            tab_parent = window_manager_find_managed_sibling(&g_window_manager, window);
-            if (tab_parent) {
-                debug("%s: tab assumed for %s %d (managed sibling %d, frame mismatch — resizing to match)\n", __FUNCTION__, window->application->name, window->id, tab_parent->id);
-                window_manager_set_window_frame(window, tab_parent->frame.origin.x, tab_parent->frame.origin.y, tab_parent->frame.size.width, tab_parent->frame.size.height);
-            }
-        }
         if (tab_parent) {
             debug("%s: tab detected for %s %d (parent %d)\n", __FUNCTION__, window->application->name, window->id, tab_parent->id);
             window_set_flag(window, WINDOW_TAB);
