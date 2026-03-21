@@ -360,7 +360,17 @@ static EVENT_HANDLER(APPLICATION_FRONT_SWITCHED)
     }
 
     struct application *deactivated_application = window_manager_find_application(&g_window_manager, g_process_manager.front_pid);
-    if (deactivated_application) event_signal_push(SIGNAL_APPLICATION_DEACTIVATED, deactivated_application);
+    if (deactivated_application) {
+        // Query the deactivated app's focused window before it loses focus.
+        // This captures which tab was actually active, since macOS may not send
+        // WINDOW_FOCUSED events for native tab switches within the same app.
+        uint32_t deactivated_wid = application_focused_window(deactivated_application);
+        struct window *deactivated_window = window_manager_find_window(&g_window_manager, deactivated_wid);
+        if (deactivated_window && deactivated_window->tab_parent_wid) {
+            g_window_manager.last_focused_tab_wid = deactivated_wid;
+        }
+        event_signal_push(SIGNAL_APPLICATION_DEACTIVATED, deactivated_application);
+    }
 
     debug("%s: %s (%d)\n", __FUNCTION__, process->name, process->pid);
     event_signal_push(SIGNAL_APPLICATION_ACTIVATED, application);
